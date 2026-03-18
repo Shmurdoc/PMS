@@ -1,0 +1,19 @@
+# ═══════════════════════════════════════════════════════════════════════
+#  Docker Ignore — Reduce build context size
+# ═══════════════════════════════════════════════════════════════════════
+**/bin/
+**/obj/
+**/TestResults/
+**/logs/
+**/.vs/
+**/.vscode/
+**/node_modules/
+**/*.md
+**/*.trx
+tests/
+.git/
+.github/
+.gitignore
+*.sln.DotSettings
+docker-compose*.yml
+.env*

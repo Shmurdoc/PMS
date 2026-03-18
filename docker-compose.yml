@@ -1,0 +1,158 @@
+# ═══════════════════════════════════════════════════════════════════════
+#  SAFARIstack PMS — Docker Compose (Production Multi-Service)
+#  Orchestrates: API + PostgreSQL 18 + Frontend + Portal + PWA
+#  ─────────────────────────────────────────────────────────────────────
+#  Services:
+#    - PostgreSQL 18 (db)           → Port 5432
+#    - SAFARIstack API               → Port 8080 (http://localhost:8080)
+#    - Frontend (Staff/Admin)        → Port 3000 (http://localhost:3000)
+#    - Portal (Admin Portal)         → Port 3001 (http://localhost:3001)
+#    - Guest PWA                     → Port 3002 (http://localhost:3002)
+# ═══════════════════════════════════════════════════════════════════════
+
+services:
+  # ─── PostgreSQL 18 Database ─────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: safaristack-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-safaristack}
+      POSTGRES_USER: ${POSTGRES_USER:-safaristack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-safaristack} -d ${POSTGRES_DB:-safaristack}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - safaristack-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+  # ─── SAFARIstack API (Backend) ──────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: safaristack-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      SwaggerSettings__Enabled: "true"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-safaristack};Username=${POSTGRES_USER:-safaristack};Password=${POSTGRES_PASSWORD};SSL Mode=Prefer;Trust Server Certificate=true"
+      SAFARISTACK_CONNECTION_STRING: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-safaristack};Username=${POSTGRES_USER:-safaristack};Password=${POSTGRES_PASSWORD};SSL Mode=Prefer;Trust Server Certificate=true"
+      SAFARISTACK_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (minimum 32 characters)}
+      AllowedOrigins__0: "http://localhost:3000"
+      AllowedOrigins__1: "http://localhost:3001"
+      AllowedOrigins__2: "http://localhost:3002"
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - safaristack-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  # ─── Frontend (Staff/Admin Interface) ───────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: safaristack-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      API_URL: http://api:8080
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - safaristack-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  # ─── Blazor Portal (Admin Portal) ────────────────────────────────────
+  portal:
+    build:
+      context: "../BLAZOR WASM/SAFARIstack.Portal"
+      dockerfile: Dockerfile
+    container_name: safaristack-portal
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      API_URL: http://api:8080
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3001"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - safaristack-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  # ─── Guest PWA (Public-facing App) ──────────────────────────────────
+  guest-pwa:
+    build:
+      context: "../PWA/SAFARIstack.GuestPWA"
+      dockerfile: Dockerfile
+    container_name: safaristack-guest-pwa
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      API_URL: http://api:8080
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3002"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - safaristack-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+networks:
+  safaristack-network:
+    driver: bridge
+
+volumes:
+  pgdata:
+    driver: local
